@@ -6,22 +6,31 @@ import (
 	"io"
 	"log"
 	"net"
-	"sync"
 )
 
 type Handler struct {
 	storage Storage
-	mutex sync.Mutex
+}
+
+type messageAndConn struct {
+	message *Message
+	conn    net.Conn
 }
 
 func server() {
-	handler := Handler{ storage: GetStorage() }
+	handler := Handler{storage: GetStorage()}
 
 	l, err := net.Listen("tcp", ":2934")
 	if err != nil {
 		log.Panicln(err)
 	}
 	defer l.Close()
+
+	in := make(chan *messageAndConn)
+	out := make(chan *messageAndConn)
+
+	go handler.handler(in, out)
+	go handler.responder(out)
 
 	for {
 		conn, err := l.Accept()
@@ -30,11 +39,11 @@ func server() {
 			continue
 		}
 
-		go readMessage(conn, &handler)
+		go readMessage(conn, in)
 	}
 }
 
-func readMessage(conn net.Conn, handler *Handler) {
+func readMessage(conn net.Conn, in chan *messageAndConn) {
 	var codecBuffer bytes.Buffer
 	message := Message{}
 	decoder := gob.NewDecoder(&codecBuffer)
@@ -63,42 +72,42 @@ func readMessage(conn net.Conn, handler *Handler) {
 		}
 	}
 
-	go handler.handle(&message, conn)
+	in <- &messageAndConn{message: &message, conn: conn}
 }
 
-func (h *Handler) handle(message *Message, conn net.Conn) {
-	var result *Message
+func (h *Handler) responder(out <-chan *messageAndConn) {
+	for res := range out {
+		buffer := serialize(res.message)
 
-	h.mutex.Lock()
-	switch message.Type {
-	case Set:
-		log.Printf("[INFO] key %s, value %s", message.Key, message.Value)
-		if message.Value == nil || message.Value == "" {
-			result = &Message{Type: Failure}
-		} else {
-			h.storage.Set(message.Key, message.Value)
-			result = &Message{Type: Success}
+		n, err := res.conn.Write(buffer)
+		if n != len(buffer) {
+			log.Printf("[WARN] cannot send response completely; %d bytes sent", n)
+		} else if err != nil {
+			log.Println("[WARN] cannot send response")
 		}
-	case Get:
-		value := h.storage.Get(message.Key)
-		result = &Message{Type: Success, Value: value}
-	default:
-		log.Println("[INFO] unsupported message {}", message)
 	}
-	h.mutex.Unlock()
-
-	go h.response(result, conn)
 }
 
-func (h *Handler) response(result *Message, conn net.Conn) {
-	buffer := serialize(result)
+func (h *Handler) handler(in <-chan *messageAndConn, out chan *messageAndConn) {
+	for req := range in {
+		message := req.message
 
-	n, err := conn.Write(buffer)
-	if n != len(buffer) {
-		log.Printf("[WARN] cannot send response completely; %d bytes sent", n)
-		return
-	}
-	if err != nil {
-		log.Println("[WARN] cannot send response")
+		var result *Message
+		switch message.Type {
+		case Get:
+			value := h.storage.Get(message.Key)
+			result = &Message{Type: Success, Value: value}
+		case Set:
+			log.Printf("[INFO] key %s, value %s", message.Key, message.Value)
+			if message.Value == nil || message.Value == "" {
+				result = &Message{Type: Failure}
+			} else {
+				h.storage.Set(message.Key, message.Value)
+				result = &Message{Type: Success}
+			}
+		default:
+			log.Println("[INFO] unsupported message", message)
+		}
+		out <- &messageAndConn{message: result, conn: req.conn}
 	}
 }
