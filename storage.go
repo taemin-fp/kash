@@ -10,9 +10,9 @@ type storageImpl struct {
 	storage map[string]interface{}
 }
 
-func GetStorage() Storage {
+func GetStorage(initialCapacity int) Storage {
 	return &storageImpl{
-		storage: make(map[string]interface{}),
+		storage: make(map[string]interface{}, initialCapacity),
 	}
 }
 

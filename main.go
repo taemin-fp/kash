@@ -7,6 +7,7 @@ import (
 
 func main() {
 	mode := flag.String("mode", "", "server or client")
+	initialCapacity := flag.Int("capacity", 4096000, "initial memory allocation capacity")
 	key := flag.String("key", "", "key string")
 	value := flag.String("value", "", "value string")
 	command := flag.String("command", "", "[get|set|remove]")
@@ -17,7 +18,7 @@ func main() {
 
 	switch *mode {
 	case "server":
-		server()
+		server(*initialCapacity)
 	case "client":
 		client(command, key, value, *n, *parallel, *keySize)
 	default:

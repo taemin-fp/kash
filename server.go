@@ -17,8 +17,8 @@ type messageAndConn struct {
 	conn    *Conn
 }
 
-func server() {
-	handler := Handler{storage: GetStorage(), mutex: sync.RWMutex{}}
+func server(initialCapacity int) {
+	handler := Handler{storage: GetStorage(initialCapacity), mutex: sync.RWMutex{}}
 
 	l, err := net.Listen("tcp", ":2934")
 	if err != nil {
