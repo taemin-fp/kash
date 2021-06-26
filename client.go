@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-func client(command, key, value *string, n, parallel int) {
+func client(command, key, value *string, n, parallel, keySize int) {
 	conn, err := makeConn()
 	if err != nil {
 		log.Panicln("[ERROR] cannot make connection; error:", err)
@@ -25,13 +25,13 @@ func client(command, key, value *string, n, parallel int) {
 
 	switch *command {
 	case Get:
-		send(get(key), conn)
+		fmt.Println(send(get(key), conn))
 	case Set:
-		send(set(key, value), conn)
+		fmt.Println(send(set(key, value), conn))
 	case Remove:
-		send(remove(key), conn)
+		fmt.Println(send(remove(key), conn))
 	case Benchmark:
-		benchmark(n, parallel)
+		benchmark(n, parallel, keySize)
 	case Repl:
 		repl(conn)
 	}
@@ -78,21 +78,21 @@ func execute(line string, conn *Conn) {
 			log.Println("illegal get")
 			return
 		}
-		send(get(&tokens[1]), conn)
+		fmt.Println(send(get(&tokens[1]), conn))
 	case Set:
 		if len(tokens) != 3 {
 			log.Println("illegal set")
 			return
 		}
-		send(set(&tokens[1], &tokens[2]), conn)
+		fmt.Println(send(set(&tokens[1], &tokens[2]), conn))
 	case Remove:
 		if len(tokens) != 2 {
 			log.Println("illegal remove")
 			return
 		}
-		send(remove(&tokens[1]), conn)
+		fmt.Println(send(remove(&tokens[1]), conn))
 	case Benchmark:
-		if len(tokens) != 3 {
+		if len(tokens) != 4 {
 			log.Println("illegal benchmark")
 			return
 		}
@@ -103,10 +103,15 @@ func execute(line string, conn *Conn) {
 		}
 		parallel, err := strconv.Atoi(tokens[2])
 		if err != nil {
-			log.Printf("%s in not a number", tokens[2])
+			log.Printf("%s is not a number", tokens[2])
 			return
 		}
-		benchmark(n, parallel)
+		keySize, err := strconv.Atoi(tokens[3])
+		if err != nil {
+			log.Printf("%s is not a number", tokens[3])
+			return
+		}
+		benchmark(n, parallel, keySize)
 	default:
 		log.Println("don't know how to handle", tokens[0])
 	}
@@ -120,8 +125,8 @@ type bench struct {
 	p99 time.Duration
 }
 
-func benchmark(n, parallel int) {
-	randomStrings := makeRandomPairPool()
+func benchmark(n, parallel, keySize int) {
+	randomStrings := makeRandomPairPool(keySize)
 	conns := make([]*Conn, parallel)
 	for i := 0; i < parallel; i++ {
 		conn, err := makeConn()
@@ -179,11 +184,11 @@ func benchmark(n, parallel int) {
 	}
 }
 
-func makeRandomPairPool() (strs []string) {
+func makeRandomPairPool(keySize int) (strs []string) {
 	rand.Seed(time.Now().UnixNano())
 	strs = make([]string, 256)
 	for i := 0; i < 256; i += 1 {
-		strs[i] = makeRandomString()
+		strs[i] = makeRandomString(keySize)
 	}
 	return
 }
@@ -191,8 +196,8 @@ func makeRandomPairPool() (strs []string) {
 const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 const charsetLen = len(charset)
 
-func makeRandomString() string {
-	buffer := make([]byte, 128)
+func makeRandomString(keySize int) string {
+	buffer := make([]byte, keySize)
 	for i := range buffer {
 		buffer[i] = charset[rand.Intn(charsetLen)]
 	}
