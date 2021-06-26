@@ -33,7 +33,7 @@ func server() {
 	for {
 		conn, err := l.Accept()
 		if err != nil {
-			log.Println("[WARN] cannot accept", conn)
+			log.Println("[WARN] cannot accept; error:", err)
 			continue
 		}
 
