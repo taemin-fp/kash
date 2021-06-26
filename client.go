@@ -113,6 +113,7 @@ func execute(line string, conn *Conn) {
 }
 
 type bench struct {
+	sum time.Duration
 	avg time.Duration
 	p50 time.Duration
 	p90 time.Duration
@@ -160,6 +161,7 @@ func benchmark(n, parallel int) {
 		for j := 0; j < n; j += 1 {
 			sum += elapsedTimes[i][j]
 		}
+		result[i].sum = sum
 		result[i].avg = time.Duration(float64(sum) / float64(n))
 		result[i].p50 = elapsedTimes[i][n/2]
 		result[i].p90 = elapsedTimes[i][int(math.Round(float64(n)*0.9))]
@@ -169,6 +171,7 @@ func benchmark(n, parallel int) {
 	fmt.Println("-> Benchmark result")
 	for i := 0; i < parallel; i += 1 {
 		fmt.Println("# Worker", i)
+		fmt.Println("    sum:", result[i].sum)
 		fmt.Println("    avg:", result[i].avg)
 		fmt.Println("    p50:", result[i].p50)
 		fmt.Println("    p90:", result[i].p90)
