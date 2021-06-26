@@ -33,16 +33,24 @@ func server(initialCapacity int, workerPoolSize int) {
 	}
 	defer l.Close()
 
-	for {
-		conn, err := l.Accept()
-		if err != nil {
-			log.Println("[WARN] cannot accept; error:", err)
-			continue
-		}
+	var wg sync.WaitGroup
+	for i := 0; i < workerPoolSize; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				conn, err := l.Accept()
+				if err != nil {
+					log.Println("[WARN] cannot accept; error:", err)
+					continue
+				}
 
-		clientConn := NewConn(conn)
-		go readMessage(clientConn, in)
+				clientConn := NewConn(conn)
+				go readMessage(clientConn, in)
+			}
+		}()
 	}
+	wg.Wait()
 }
 
 func readMessage(conn *Conn, in chan<- *messageAndConn) {

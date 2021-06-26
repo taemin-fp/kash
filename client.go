@@ -169,8 +169,8 @@ func benchmark(n, parallel, keySize int) {
 		result[i].sum = sum
 		result[i].avg = time.Duration(float64(sum) / float64(n))
 		result[i].p50 = elapsedTimes[i][n/2]
-		result[i].p90 = elapsedTimes[i][int(math.Round(float64(n)*0.9))]
-		result[i].p99 = elapsedTimes[i][int(math.Round(float64(n)*0.99))]
+		result[i].p90 = elapsedTimes[i][int(math.Floor(float64(n)*0.9))]
+		result[i].p99 = elapsedTimes[i][int(math.Floor(float64(n)*0.99))]
 	}
 
 	fmt.Println("-> Benchmark result")

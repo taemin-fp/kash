@@ -1,1 +1,3 @@
-module "kash"
+module kash
+
+go 1.16
