@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"math/rand"
 	"net"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -110,6 +112,13 @@ func execute(line string, conn *Conn) {
 	}
 }
 
+type bench struct {
+	avg time.Duration
+	p50 time.Duration
+	p90 time.Duration
+	p99 time.Duration
+}
+
 func benchmark(n, parallel int) {
 	randomStrings := makeRandomPairPool()
 	conns := make([]*Conn, parallel)
@@ -123,7 +132,9 @@ func benchmark(n, parallel int) {
 	}
 
 	var wg sync.WaitGroup
+	elapsedTimes := make([][]time.Duration, parallel)
 	for i := 0; i < parallel; i += 1 {
+		elapsedTimes[i] = make([]time.Duration, n)
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -133,14 +144,36 @@ func benchmark(n, parallel int) {
 				elapsed := time.Since(start)
 				if result.Type == Failure {
 					fmt.Printf("[ERROR] worker %d, error %s\n", i, result)
-				} else {
-					fmt.Printf("[INFO] worker %d, elapsed %s\n", i, elapsed)
 				}
+				elapsedTimes[i][j] = elapsed
 			}
 		}(i)
 	}
 	wg.Wait()
-	fmt.Println("finish benchmark")
+
+	result := make([]bench, parallel)
+	for i := 0; i < parallel; i += 1 {
+		sum := time.Duration(0)
+		sort.Slice(elapsedTimes[i], func(k, l int) bool {
+			return elapsedTimes[i][k] < elapsedTimes[i][l]
+		})
+		for j := 0; j < n; j += 1 {
+			sum += elapsedTimes[i][j]
+		}
+		result[i].avg = time.Duration(float64(sum) / float64(n))
+		result[i].p50 = elapsedTimes[i][n/2]
+		result[i].p90 = elapsedTimes[i][int(math.Round(float64(n)*0.9))]
+		result[i].p99 = elapsedTimes[i][int(math.Round(float64(n)*0.99))]
+	}
+
+	fmt.Println("-> Benchmark result")
+	for i := 0; i < parallel; i += 1 {
+		fmt.Println("# Worker", i)
+		fmt.Println("    avg:", result[i].avg)
+		fmt.Println("    p50:", result[i].p50)
+		fmt.Println("    p90:", result[i].p90)
+		fmt.Println("    p99:", result[i].p99)
+	}
 }
 
 func makeRandomPairPool() (strs []string) {
