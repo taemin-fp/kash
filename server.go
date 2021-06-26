@@ -4,10 +4,12 @@ import (
 	"io"
 	"log"
 	"net"
+	"sync"
 )
 
 type Handler struct {
 	storage Storage
+	mutex   sync.RWMutex
 }
 
 type messageAndConn struct {
@@ -16,19 +18,13 @@ type messageAndConn struct {
 }
 
 func server() {
-	handler := Handler{storage: GetStorage()}
+	handler := Handler{storage: GetStorage(), mutex: sync.RWMutex{}}
 
 	l, err := net.Listen("tcp", ":2934")
 	if err != nil {
 		log.Panicln(err)
 	}
 	defer l.Close()
-
-	in := make(chan *messageAndConn)
-	out := make(chan *messageAndConn)
-
-	go handler.handler(in, out)
-	go handler.responder(out)
 
 	for {
 		conn, err := l.Accept()
@@ -38,11 +34,11 @@ func server() {
 		}
 
 		clientConn := NewConn(conn)
-		go readMessage(clientConn, in)
+		go readMessage(clientConn, &handler)
 	}
 }
 
-func readMessage(conn *Conn, in chan<- *messageAndConn) {
+func readMessage(conn *Conn, handler *Handler) {
 	for {
 		message, err := conn.Receive()
 		if err != nil {
@@ -53,46 +49,47 @@ func readMessage(conn *Conn, in chan<- *messageAndConn) {
 			return
 		}
 
-		in <- &messageAndConn{message: message, conn: conn}
+		go handler.handle(&messageAndConn{message: message, conn: conn})
 	}
 }
 
-func (h *Handler) responder(out <-chan *messageAndConn) {
-	for res := range out {
-		err := res.conn.Send(res.message)
-		if err != nil {
-			log.Println("[WARN] error on responding; error: ", err)
-			continue
-		}
+func (h *Handler) respond(conn *messageAndConn) {
+	err := conn.conn.Send(conn.message)
+	if err != nil {
+		log.Println("[WARN] error on responding; error: ", err)
 	}
 }
 
-func (h *Handler) handler(in <-chan *messageAndConn, out chan<- *messageAndConn) {
-	for req := range in {
-		message := req.message
+func (h *Handler) handle(conn *messageAndConn) {
+	message := conn.message
 
-		var result *Message
-		switch message.Type {
-		case Get:
-			value := h.storage.Get(message.Key)
-			result = &Message{Type: Success, Value: value}
-		case Set:
-			if message.Value == nil || message.Value == "" {
-				result = &Message{Type: Failure}
-			} else {
-				h.storage.Set(message.Key, message.Value)
-				result = &Message{Type: Success}
-			}
-		case Remove:
-			if message.Key == "" || h.storage.Get(message.Key) == nil {
-				result = &Message{Type: Failure}
-			} else {
-				h.storage.Remove(message.Key)
-				result = &Message{Type: Success}
-			}
-		default:
-			log.Println("[INFO] unsupported message", message)
+	var result *Message
+	switch message.Type {
+	case Get:
+		h.mutex.RLock()
+		defer h.mutex.RUnlock()
+		value := h.storage.Get(message.Key)
+		result = &Message{Type: Success, Value: value}
+	case Set:
+		h.mutex.Lock()
+		defer h.mutex.Unlock()
+		if message.Value == nil || message.Value == "" {
+			result = &Message{Type: Failure}
+		} else {
+			h.storage.Set(message.Key, message.Value)
+			result = &Message{Type: Success}
 		}
-		out <- &messageAndConn{message: result, conn: req.conn}
+	case Remove:
+		h.mutex.Lock()
+		defer h.mutex.Unlock()
+		if message.Key == "" || h.storage.Get(message.Key) == nil {
+			result = &Message{Type: Failure}
+		} else {
+			h.storage.Remove(message.Key)
+			result = &Message{Type: Success}
+		}
+	default:
+		log.Println("[INFO] unsupported message", message)
 	}
+	go h.respond(&messageAndConn{message: result, conn: conn.conn})
 }
