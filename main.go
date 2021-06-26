@@ -10,13 +10,15 @@ func main() {
 	key := flag.String("key", "", "key string")
 	value := flag.String("value", "", "value string")
 	command := flag.String("command", "", "[get|set|remove]")
+	n := flag.Int("n", 0, "benchmark running count")
+	parallel := flag.Int("parallel", 0, "benchmark parallelism")
 	flag.Parse()
 
 	switch *mode {
 	case "server":
 		server()
 	case "client":
-		client(command, key, value)
+		client(command, key, value, *n, *parallel)
 	default:
 		log.Panicln("[ERROR] don't know how to run", mode)
 	}

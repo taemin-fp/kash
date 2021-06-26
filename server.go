@@ -1,8 +1,6 @@
 package main
 
 import (
-	"bytes"
-	"encoding/gob"
 	"io"
 	"log"
 	"net"
@@ -14,7 +12,7 @@ type Handler struct {
 
 type messageAndConn struct {
 	message *Message
-	conn    net.Conn
+	conn    *Conn
 }
 
 func server() {
@@ -39,56 +37,37 @@ func server() {
 			continue
 		}
 
-		go readMessage(conn, in)
+		clientConn := NewConn(conn)
+		go readMessage(clientConn, in)
 	}
 }
 
-func readMessage(conn net.Conn, in chan *messageAndConn) {
-	var codecBuffer bytes.Buffer
-	message := Message{}
-	decoder := gob.NewDecoder(&codecBuffer)
-	recvbuf := make([]byte, 8192)
-
+func readMessage(conn *Conn, in chan<- *messageAndConn) {
 	for {
-		n, err := conn.Read(recvbuf)
+		message, err := conn.Receive()
 		if err != nil {
 			if err == io.EOF {
-				log.Println("[INFO] connection closed by peer", conn.RemoteAddr().String())
 				return
 			}
-			log.Println("[WARN] cannot receive data; error:", err)
+			log.Println("[WARN] error on readMessage; error:", err)
 			return
 		}
 
-		if n > 0 {
-			data := recvbuf[:n]
-			codecBuffer.Write(data)
-
-			if err := decoder.Decode(&message); err != nil {
-				log.Println("[WARN] cannot decode message; error:", err)
-				continue
-			}
-			break
-		}
+		in <- &messageAndConn{message: message, conn: conn}
 	}
-
-	in <- &messageAndConn{message: &message, conn: conn}
 }
 
 func (h *Handler) responder(out <-chan *messageAndConn) {
 	for res := range out {
-		buffer := serialize(res.message)
-
-		n, err := res.conn.Write(buffer)
-		if n != len(buffer) {
-			log.Printf("[WARN] cannot send response completely; %d bytes sent", n)
-		} else if err != nil {
-			log.Println("[WARN] cannot send response")
+		err := res.conn.Send(res.message)
+		if err != nil {
+			log.Println("[WARN] error on responding; error: ", err)
+			continue
 		}
 	}
 }
 
-func (h *Handler) handler(in <-chan *messageAndConn, out chan *messageAndConn) {
+func (h *Handler) handler(in <-chan *messageAndConn, out chan<- *messageAndConn) {
 	for req := range in {
 		message := req.message
 
@@ -98,11 +77,17 @@ func (h *Handler) handler(in <-chan *messageAndConn, out chan *messageAndConn) {
 			value := h.storage.Get(message.Key)
 			result = &Message{Type: Success, Value: value}
 		case Set:
-			log.Printf("[INFO] key %s, value %s", message.Key, message.Value)
 			if message.Value == nil || message.Value == "" {
 				result = &Message{Type: Failure}
 			} else {
 				h.storage.Set(message.Key, message.Value)
+				result = &Message{Type: Success}
+			}
+		case Remove:
+			if message.Key == "" || h.storage.Get(message.Key) == nil {
+				result = &Message{Type: Failure}
+			} else {
+				h.storage.Remove(message.Key)
 				result = &Message{Type: Success}
 			}
 		default:
