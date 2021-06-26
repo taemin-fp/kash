@@ -87,7 +87,11 @@ func (h *Handler) handler(in <-chan *messageAndConn, out chan<- *messageAndConn)
 			h.mutex.RLock()
 			value := h.storage.Get(message.Key)
 			h.mutex.RUnlock()
-			result = &Message{Type: Success, Value: value}
+			if value == nil {
+				result = &Message{Type: Failure}
+			} else {
+				result = &Message{Type: Success, Value: value}
+			}
 		case Set:
 			if message.Value == nil || message.Value == "" {
 				result = &Message{Type: Failure}

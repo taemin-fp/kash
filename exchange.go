@@ -1,11 +1,12 @@
 package main
 
 import (
-	"bytes"
 	"encoding/binary"
-	"encoding/gob"
+	"errors"
+	"fmt"
 	"io"
 	"net"
+	"strings"
 )
 
 type Conn struct {
@@ -77,23 +78,80 @@ func (c *Conn) Close() error {
 	return c.conn.Close()
 }
 
-func serialize(message *Message) ([]byte, error) {
-	var codecBuffer bytes.Buffer
-	encoder := gob.NewEncoder(&codecBuffer)
-	if err := encoder.Encode(*message); err != nil {
-		return nil, err
+func serialize(message *Message) (result []byte, err error) {
+	switch message.Type {
+	case Get:
+		result = []byte(Get + " " + message.Key)
+	case Set:
+		result = []byte(fmt.Sprintf("%s %s %s", Set, message.Key, message.Value))
+	case Remove:
+		result = []byte(Remove + " " + message.Key)
+	case Success:
+		result = []byte(fmt.Sprintf("%s %s", Success, message.Value))
+	case Failure:
+		result = []byte(fmt.Sprintf("%s %s", Failure, message.Value))
+	default:
+		result = nil
+		err = errors.New("no matching message type of " + message.Type)
 	}
-
-	return codecBuffer.Bytes(), nil
+	return
 }
 
-func deserialize(buffer []byte) (*Message, error) {
-	codecBuffer := bytes.NewBuffer(buffer)
-	message := Message{}
-	decoder := gob.NewDecoder(codecBuffer)
-	if err := decoder.Decode(&message); err != nil {
-		return nil, err
+func deserialize(buffer []byte) (message *Message, err error) {
+	command := strings.Split(string(buffer), " ")
+	commandLen := len(command)
+	if commandLen < 1 {
+		return nil, errors.New("don't know how to handle " + string(buffer))
 	}
 
-	return &message, nil
+	switch command[0] {
+	case Get:
+		if commandLen == 2 {
+			message = &Message{
+				Type: Get,
+				Key:  command[1],
+			}
+		} else {
+			err = errors.New("illegal get " + string(buffer))
+		}
+	case Set:
+		if commandLen == 3 {
+			message = &Message{
+				Type:  Set,
+				Key:   command[1],
+				Value: command[2],
+			}
+		} else {
+			err = errors.New("illegal set " + string(buffer))
+		}
+	case Remove:
+		if commandLen == 2 {
+			message = &Message{
+				Type: Remove,
+				Key:  command[1],
+			}
+		} else {
+			err = errors.New("illegal remove " + string(buffer))
+		}
+	case Success:
+		if commandLen == 2 {
+			message = &Message{
+				Type:  Success,
+				Value: command[1],
+			}
+		} else if commandLen == 1 {
+			message = &Message{
+				Type: Success,
+			}
+		} else {
+			err = errors.New("illegal success " + string(buffer))
+		}
+	case Failure:
+		message = &Message{
+			Type: Failure,
+		}
+	default:
+		err = errors.New("don't know how to handle " + command[0])
+	}
+	return
 }
