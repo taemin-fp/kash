@@ -9,6 +9,8 @@
 
 ### commit hash `06513349873fe2a37fdc669f9ac206253b3bcbfc`
 
+(time sharing worker)
+
 `./kash -mode client -command benchmark -n 1000 -parallel 50 -key-size 5`
 
 ```
@@ -316,6 +318,8 @@
 ```
 
 ### commit hash `f1250d4bb68643ac5bdb69e855b4ebdeedf12731`
+
+(mutex based)
 
 ```
 -> Benchmark result
