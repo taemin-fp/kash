@@ -17,27 +17,33 @@ func NewConn(conn net.Conn) *Conn {
 	return &Conn{conn: conn}
 }
 
+func writeAll(w io.Writer, buffer []byte) error {
+	remain := len(buffer)
+	for remain > 0 {
+		n, err := w.Write(buffer[len(buffer)-remain:])
+		if err != nil {
+			return err
+		}
+		remain -= n
+	}
+	return nil
+}
+
 func (c *Conn) Send(message *Message) error {
 	buffer, err := serialize(message)
 	if err != nil {
 		return err
 	}
-	bufferSize := len(buffer)
-	lenBuffer := make([]byte, 4)
-	remain := bufferSize
 
-	binary.BigEndian.PutUint32(lenBuffer, uint32(bufferSize))
-	_, err = c.conn.Write(lenBuffer)
-	if err != nil {
+	lenBuffer := make([]byte, 4)
+	binary.BigEndian.PutUint32(lenBuffer, uint32(len(buffer)))
+
+	if err := writeAll(c.conn, lenBuffer); err != nil {
 		return err
 	}
 
-	for remain > 0 {
-		n, err := c.conn.Write(buffer)
-		remain -= n
-		if err != nil {
-			return err
-		}
+	if err := writeAll(c.conn, buffer); err != nil {
+		return err
 	}
 
 	return nil
@@ -45,25 +51,14 @@ func (c *Conn) Send(message *Message) error {
 
 func (c *Conn) Receive() (*Message, error) {
 	lenBuffer := make([]byte, 4)
-	messageBuffer := make([]byte, 0)
-	buffer := make([]byte, 8192)
-
-	_, err := c.conn.Read(lenBuffer)
-	if err != nil {
+	if _, err := io.ReadFull(c.conn, lenBuffer); err != nil {
 		return nil, err
 	}
-	messageLen := binary.BigEndian.Uint32(lenBuffer)
-	received := uint32(0)
 
-	for received < messageLen {
-		n, err := c.conn.Read(buffer)
-		if err == io.EOF {
-			break
-		} else if err != nil {
-			return nil, err
-		}
-		messageBuffer = append(messageBuffer, buffer[:n]...)
-		received += uint32(n)
+	messageLen := binary.BigEndian.Uint32(lenBuffer)
+	messageBuffer := make([]byte, messageLen)
+	if _, err := io.ReadFull(c.conn, messageBuffer); err != nil {
+		return nil, err
 	}
 
 	message, err := deserialize(messageBuffer)
